@@ -1,0 +1,5 @@
+---
+# defaults file for ansible-role-rhde
+
+arch: "x86_64"
+ocp_ver: "4.12"
