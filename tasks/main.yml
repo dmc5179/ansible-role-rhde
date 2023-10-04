@@ -1,12 +1,12 @@
 ---
 # tasks file for ansible-role-rhde
 
-- name: Register as user (joe_user) with password (somepass) and auto-subscribe to available content.
+- name: Register system with subscription manager
   community.general.redhat_subscription:
     state: present
-    username: joe_user
-    password: somepass
-    auto_attach: false
+    username: '{{ rhn_username }}'
+    password: '{{ rhn_password }}'
+    #auto_attach: false
 
   # Needed for EC2 instances
   # TODO: Is there an ansible module/task for this??
@@ -70,14 +70,29 @@
 
 - name: Sync repos for microshift install
   become: true
-  ansible.buildin.command: "reposync -n --arch={{ arch }} --arch=noarch --gpgcheck --download-path /var/repos/microshift-local --repo=rhocp-{{ ocp_ver }}-for-rhel-8-x86_64-rpms --repo=fast-datapath-for-rhel-8-x86_64-rpms"
+  ansible.builtin.command: "reposync -n --arch={{ arch }} --arch=noarch --gpgcheck --download-path /var/repos/microshift-local --repo=rhocp-{{ ocp_ver }}-for-rhel-8-x86_64-rpms --repo=fast-datapath-for-rhel-8-x86_64-rpms"
 
 # TODO: Convert command to ansible task: find /var/repos/microshift-local -name \*coreos\* -print -exec rm -f {} \;
-#       /var/repos/microshift-local/rhocp-4.12-for-rhel-8-x86_64-rpms/Packages/c/coreos-installer-0.16.1-1.rhaos4.12.el8.x86_64.rpm
+- name: Find conflicting files in repo mirror
+  become: true
+  ansible.builtin.find:
+    path: /var/repos/microshift-local
+    recurse: true
+    use_regex: true
+    pattern: "*coreos*"
+  register: file_conflicts_info
+
+- name: Remove conflicting files in repo mirror
+  become: true
+  ansible.builtin.file:
+    path: '{{ item }}.path'
+    state: absent
+  loop:
+    - '{{ file_conficts_info.files }}'
 
 - name: Create yum repo from mirrored content
   become: true
-  ansible.buildin.command: createrepo /var/repos/microshift-local
+  ansible.builtin.command: createrepo /var/repos/microshift-local
 
 - name: Copy repo file
   become: true
@@ -90,7 +105,7 @@
 
 - name: Add YUM repo source to composer
   become: true
-  ansible.buildin.command: composer-cli sources add /var/repos/microshift-local/microshift.toml
+  ansible.builtin.command: composer-cli sources add /var/repos/microshift-local/microshift.toml
 
 - name: Copy repo file
   become: true
@@ -101,24 +116,26 @@
     group: root
     mode: 0644
 
+- fail:
+
 - name: Push Composer Blueprint
   become: true
-  ansible.buildin.command: composer-cli blueprints push /root/rhde-microshift.toml
+  ansible.builtin.command: composer-cli blueprints push /root/rhde-microshift.toml
 
 - name: Start ostree compose
   become: true
-  ansible.buildin.command: composer-cli compose start-ostree rhde-microshift rhel-edge-container
+  ansible.builtin.command: composer-cli compose start-ostree rhde-microshift rhel-edge-container
 
 # TODO: Need to get the compose ID and then run this command in a loop until the task is complete
 - name: Get ID of ostree compose job
   become: true
-  ansible.buildin.command: composer-cli compose status
+  ansible.builtin.command: composer-cli compose status
   register: compose_job_info
 
 # Using the ID from the previous commands
 - name: Create Compose Image
   become: true
-  ansible.buildin.command: "composer-cli compose image {{ compose_job_id }}"
+  ansible.builtin.command: "composer-cli compose image {{ compose_job_id }}"
 
 # TODO: Convert command to ansible task: skopeo copy oci-archive:d5d57d57-8da5-487f-81a5-162691d2e912-container.tar containers-storage:localhost/rhde-microshift:latest
 
@@ -182,7 +199,7 @@
 
 - name: Run the recook script
   become: true
-  ansible.buildin.command: "bash -c /root/generate-iso/recook.sh"
+  ansible.builtin.command: "bash -c /root/generate-iso/recook.sh"
 
 - name: Fetch the rhde-ztp.iso created by the script
   become: true
