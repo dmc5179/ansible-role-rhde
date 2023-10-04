@@ -1,76 +1,80 @@
 ---
 # tasks file for ansible-role-rhde
 
-- name: Register system with subscription manager
-  community.general.redhat_subscription:
-    state: present
-    username: '{{ rhn_username }}'
-    password: '{{ rhn_password }}'
-    #auto_attach: false
-
-  # Needed for EC2 instances
-  # TODO: Is there an ansible module/task for this??
-- name: Configure subscription manager for EC2 instances
-  ansible.builtin.command: subscription-manager config --rhsm.manage_repos=1
-
-- name: Enable OpenShift repository
-  community.general.rhsm_repository:
-    name: "rhocp-{{ ocp_ver }}-for-rhel-8-{{ arch }}-rpms"
-
-- name: Enable fast datapath repository
-  community.general.rhsm_repository:
-    name: "fast-datapath-for-rhel-8-{{ arch }}-rpms"
-
-- name: Update all packages
-  become: true
-  ansible.builtin.dnf:
-    name: "*"
-    state: latest
-
-- name: Install other required packages
-  become: true
-  ansible.builtin.dnf:
-    name:
-      - vim
-      - createrepo
-      - yum-utils
-      - lorax
-      - skopeo
-      - composer-cli
-      - cockpit-composer
-      - podman
-      - genisoimage
-      - syslinux
-      - isomd5sum
-
-- name: Start and enable cockpit.socket systemd service
-  become: true
-  ansible.builtin.systemd:
-    state: started
-    name: cockpit.socket
-    enabled: true
-    masked: false
-
-- name: Start and enabled osbuild-composer.socket systemd service
-  become: true
-  ansible.builtin.systemd:
-    state: started
-    name: osbuild-composer.socket
-    enabled: true
-    masked: false
-
-- name: Create /var/repos/microshift-local directory
-  become: true
-  ansible.builtin.file:
-    path: /var/repos/microshift-local
-    state: directory
-    owner: root
-    group: root
-    mode: 0755
-
-- name: Sync repos for microshift install
-  become: true
-  ansible.builtin.command: "reposync -n --arch={{ arch }} --arch=noarch --gpgcheck --download-path /var/repos/microshift-local --repo=rhocp-{{ ocp_ver }}-for-rhel-8-x86_64-rpms --repo=fast-datapath-for-rhel-8-x86_64-rpms"
+#- name: Register system with subscription manager
+#  become: true
+#  community.general.redhat_subscription:
+#    state: present
+#    username: "{{ rhn_username }}"
+#    password: "{{ rhn_password }}"
+#    auto_attach: true
+#
+#  # Needed for EC2 instances
+#  # TODO: Is there an ansible module/task for this??
+#- name: Configure subscription manager for EC2 instances
+#  become: true
+#  ansible.builtin.command: subscription-manager config --rhsm.manage_repos=1
+#
+#- name: Enable OpenShift repository
+#  become: true
+#  community.general.rhsm_repository:
+#    name: "rhocp-{{ ocp_ver }}-for-rhel-8-{{ arch }}-rpms"
+#
+#- name: Enable fast datapath repository
+#  become: true
+#  community.general.rhsm_repository:
+#    name: "fast-datapath-for-rhel-8-{{ arch }}-rpms"
+#
+#- name: Update all packages
+#  become: true
+#  ansible.builtin.dnf:
+#    name: "*"
+#    state: latest
+#
+#- name: Install other required packages
+#  become: true
+#  ansible.builtin.dnf:
+#    name:
+#      - vim
+#      - createrepo
+#      - yum-utils
+#      - lorax
+#      - skopeo
+#      - composer-cli
+#      - cockpit-composer
+#      - podman
+#      - genisoimage
+#      - syslinux
+#      - isomd5sum
+#
+#- name: Start and enable cockpit.socket systemd service
+#  become: true
+#  ansible.builtin.systemd:
+#    state: started
+#    name: cockpit.socket
+#    enabled: true
+#    masked: false
+#
+#- name: Start and enabled osbuild-composer.socket systemd service
+#  become: true
+#  ansible.builtin.systemd:
+#    state: started
+#    name: osbuild-composer.socket
+#    enabled: true
+#    masked: false
+#
+#- name: Create /var/repos/microshift-local directory
+#  become: true
+#  ansible.builtin.file:
+#    path: /var/repos/microshift-local
+#    state: directory
+#    owner: root
+#    group: root
+#    mode: 0755
+#
+#- name: Sync repos for microshift install
+#  become: true
+#  ansible.builtin.command: "reposync -n --arch={{ arch }} --arch=noarch --gpgcheck --download-path /var/repos/microshift-local --repo=rhocp-{{ ocp_ver }}-for-rhel-8-x86_64-rpms --repo=fast-datapath-for-rhel-8-x86_64-rpms"
 
 # TODO: Convert command to ansible task: find /var/repos/microshift-local -name \*coreos\* -print -exec rm -f {} \;
 - name: Find conflicting files in repo mirror
@@ -88,7 +92,7 @@
     path: '{{ item }}.path'
     state: absent
   loop:
-    - '{{ file_conficts_info.files }}'
+    - '{{ file_conflicts_info.files }}'
 
 - name: Create yum repo from mirrored content
   become: true
@@ -103,34 +107,43 @@
     group: root
     mode: 0644
 
-- name: Add YUM repo source to composer
-  become: true
-  ansible.builtin.command: composer-cli sources add /var/repos/microshift-local/microshift.toml
-
 - name: Copy repo file
   become: true
   ansible.builtin.copy:
     src: "files/rhde-microshift.toml"
-    dest: "/root/rhde-mircoshift.toml"
+    dest: "/root/rhde-microshift.toml"
     owner: root
     group: root
     mode: 0644
 
-- fail:
+- name: Add YUM repo source to composer
+  become: true
+  ansible.builtin.command: composer-cli sources add /var/repos/microshift-local/microshift.toml
 
 - name: Push Composer Blueprint
   become: true
   ansible.builtin.command: composer-cli blueprints push /root/rhde-microshift.toml
 
+  #Note: takes about 30 seconds to return
+  #Output looks like: Compose a56994ed-c2ab-4f29-acb8-cda0835c2ae4 added to the queue
 - name: Start ostree compose
   become: true
   ansible.builtin.command: composer-cli compose start-ostree rhde-microshift rhel-edge-container
+  register: compose_start_info
 
 # TODO: Need to get the compose ID and then run this command in a loop until the task is complete
+# Command output looks like: 
+#ID                                     Status     Time                      Blueprint         Version   Type               Size
+#a56994ed-c2ab-4f29-acb8-cda0835c2ae4   RUNNING    Wed Oct 4 17:39:35 2023   rhde-microshift   1.0.0     edge-container     
+#ID                                     Status     Time                      Blueprint         Version   Type               Size
+#a56994ed-c2ab-4f29-acb8-cda0835c2ae4   FINISHED   Wed Oct 4 17:48:30 2023   rhde-microshift   1.0.0     edge-container   
 - name: Get ID of ostree compose job
   become: true
   ansible.builtin.command: composer-cli compose status
   register: compose_job_info
+  until: '"FINISHED" in compose_job_info.stdout'
+  retries: 200
+  delay: 30
 
 # Using the ID from the previous commands
 - name: Create Compose Image
@@ -138,17 +151,37 @@
   ansible.builtin.command: "composer-cli compose image {{ compose_job_id }}"
 
 # TODO: Convert command to ansible task: skopeo copy oci-archive:d5d57d57-8da5-487f-81a5-162691d2e912-container.tar containers-storage:localhost/rhde-microshift:latest
+- name: Copy compose image archive into local container storage
+  become: true
+  ansible.builtin.command: skopy copy oci-archive:{{ archive_file }} containers-storage:localhost/rhde-microshift:latest
 
-# TODO: Convert command to ansible task: podman run --rm -p 8000:8080 rhde-microshift:latest
+- name: Start the composer container image
+  become: true
+  containers.podman.podman_container:
+    name: rhde-microshift
+    image: rhde-microshift:latest
+    rm: true
+    restart: false
+    detach: true
+    ports:
+      - "8000:8080"
+    state: started
 
 - name: Create ostree directory
   become: true
   ansible.builtin.file:
     path: /root/generate-iso/ostree
+    state: directory
 
-# TODO: Convert command to ansible task: podman cp aa515e9d9cd2:/usr/share/nginx/html/repo ~/generate-iso/ostree
+- name: Copy ostree from container image
+  become: true
+  ansible.builtin.command: podman cp rhde-microshift:/usr/share/nginx/html/repo /root/generate-iso/ostree
 
-# TODO: Convert command to ansible task: podman stop aa515e9d9cd2
+- name: Stop the composer container image
+  become: true
+  containers.podman.podman_container:
+    name: rhde-microshift
+    state: stopped
 
 - name: Copy isolinux config
   become: true
@@ -178,7 +211,6 @@
     mode: 0644
 
 #TODO: Pull in a RHEL 8.7 ISO from somewhere#
-
 - name: Copy RHEL 8 ISO to host
   become: true
   ansible.builtin.copy:
